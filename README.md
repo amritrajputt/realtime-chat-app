@@ -1,97 +1,82 @@
 # Real-time Chat Application
 
-A high-performance, scalable real-time chat application built with Node.js, Express, TypeScript, and Socket.IO.
+A high-performance, horizontally scalable real-time chat application built with Node.js, Express, TypeScript, Socket.IO, and Redis.
 
 ---
 
 ## 🗺️ Project Architecture & Roadmap
 
-This project is divided into 4 key development phases:
+This project is divided into 4 key development phases, all of which are **Completed**:
 
-### 📍 Phase 1: Basic Message Flow (Completed)
-* **Goal:** Establish standard websocket client-server communication.
-* **Flow:**
-  ```text
-  Client types msg
-        ↓
-  emit('message', text)          ← client → server
-        ↓
-  server receives it
-        ↓
-  io.emit('message', data)       ← server → ALL clients
-        ↓
-  Every client's onmessage fires
-        ↓
-  Append to UI
-  ```
-* **Implementation Rules:**
-  * **Server-side:** Listen for the `connection` event, then listen for the custom message event, and broadcast via `io.emit`.
-  * **Client-side:** Establish socket connection, listen for the message event, and render incoming messages to the DOM.
+1. **Phase 1: Basic Message Flow** - Standard client-server communication using Socket.IO.
+2. **Phase 2: History Sync for New Users** - In-memory history caching for newly connected users.
+3. **Phase 3: Horizontal Scaling (Redis Pub/Sub)** - Multi-instance clustering support using a Valkey/Redis message broker.
+4. **Phase 4: Rate Limiting** - Message flood protection utilizing a fixed-window throttling algorithm.
 
 ---
 
-### 📍 Phase 2: History Sync for New Users (Completed)
-* **Goal:** Allow newly connected clients to view recent chat history instead of joining an empty screen.
-* **Flow:**
-  ```text
-  New client connects
-        ↓
-  Server fetches last N messages from memory
-        ↓
-  Emits history payload ONLY to the new socket
-        ↓
-  Client renders history first, then starts listening to live updates
+## ⚙️ Technical Deep-Dive
+
+### 1. Horizontal Scaling & Server Clustering (Redis Pub/Sub)
+WebSocket connections are persistent and stateful, meaning a client connected to **Server A** cannot directly communicate with a client connected to **Server B**. 
+
+To resolve this and support horizontal scaling, we implemented a Pub/Sub coordinator:
+
+```text
+  Client A ──> Server A (Port 4000)
+                  │
+                  ▼ (Publisher Client)
+               [ Redis Pub/Sub "chat" channel ]
+                  │
+                  ▼ (Subscriber Clients)
+       ┌──────────────────────────┐
+       │                          │
+       ▼                          ▼
+ Server A (Port 4000)      Server B (Port 5000)
+       │                          │
+       ▼ (io.emit)                ▼ (io.emit)
+  Client A                   Client B
+```
+
+* **Publish/Subscribe Split**: A single Redis connection in subscription mode is blocked from executing other commands. Therefore, we instantiate two separate Redis connections:
+  * `publisher`: Handles database queries (`RPUSH`, `LRANGE`) and publishes outgoing chat events.
+  * `subscriber`: Dedicated solely to listening for the `"chat"` channel events.
+* **Message Delivery**: When a user emits a chat message to their server, that server writes the message to history and publishes it to Redis. Redis immediately broadcasts the event to all server instances, which then emit it to their local socket connections.
+
+### 2. Capped Message History (Redis Lists)
+Instead of keeping messages in a local memory array (which gets lost on server restarts and is not shared across instances), we store history in Redis:
+
+* **Append (`RPUSH`)**: New messages are appended to the right (tail) of the Redis list named `chat_history`.
+* **Eviction (`LTRIM`)**: To prevent memory bloat, we run `LTRIM chat_history -100 -1` after every push. This retains only the 100 most recent messages (indices `-100` to `-1`) and discards older ones from the left (head).
+* **Load (`LRANGE`)**: When a client loads or refreshes the page, they request `/load-messages` which executes `LRANGE chat_history 0 -1` to retrieve the entire capped history chronologically.
+
+### 3. Connection-Based Rate Limiting
+To protect server resources and prevent spam, we implemented a **Fixed-Window Rate Limiter**:
+
+* **Limitation Rules**: Users are capped at a maximum of **3 messages every 10 seconds**.
+* **State Management**: We store a rate limit state map in memory:
+  ```typescript
+  rateLimit: Map<string, { count: number, timestamp: number }>
   ```
-* **Protocol Details:**
-  * **`chat:history`**: Emitted exclusively to the newly connected user instantly on join.
-  * **`chat:message`**: Emitted to all active users for real-time messages.
-  * **Server Memory:** Tracks history in a capped array (maximum 50/100 messages), pushing new messages and shifting out the oldest.
+* **Window Evaluation**:
+  * If a message is sent within 10 seconds of the window start (`Date.now() - timestamp < 10000`):
+    * If `count >= 3`, the message is dropped and a warning is emitted back to the client.
+    * Otherwise, `count` is incremented.
+  * If 10 seconds have elapsed, the window is reset: `count` is set to `1` and `timestamp` is updated to `Date.now()`.
+* **Memory Management**: To prevent memory leaks, we execute `rateLimit.delete(socket.id)` when the connection fires a `disconnect` event.
 
----
+### 4. Session Persistence (Local Storage)
+Because socket connections assign a new random `socket.id` on page refresh or reconnection, using `socket.id` as the message sender key causes historical messages to misalign (shifting from the right to the left).
 
-### 📍 Phase 3: Horizontal Scaling (Redis Pub/Sub)
-* **Goal:** Enable multi-server support (e.g., when scaled across multiple instances behind a load balancer).
-* **Problem:** A client connected to Server 1 cannot talk to a client connected to Server 2.
-* **Flow:**
-  ```text
-  Client A ──> Server 1 (receives msg)
-                  ↓
-               Publishes to Redis channel "chat"
-                  ↓
-               Redis broadcasts to ALL Server subscribers
-                  ↓
-               Server 1 & Server 2 receive the pub/sub event
-                  ↓
-               Both servers emit to their own connected clients (Client A & Client B)
-  ```
-* **Dependencies:**
-  * Install `ioredis` to manage the pub/sub channels.
-  * Instantiate **two** Redis connections:
-    * `pubClient`: For publishing outgoing chat events.
-    * `subClient`: For subscribing to the chat channel (since a connection in subscribe mode cannot run other commands).
-
----
-
-### 📍 Phase 4: Rate Limiting
-* **Goal:** Protect server resources and prevent spam crashes (e.g., if a user sends hundreds of messages/sec).
-* **Flow (Token Bucket / Counter):**
-  ```text
-  User sends a message
-        ↓
-  Check: How many messages did this socket send in the last 1 second?
-        ↓
-  If > Limit: Drop the message and emit a rate-limit warning.
-  If ≤ Limit: Allow message propagation and increment counter.
-  ```
-* **Scaling Strategy:**
-  * **Single Node:** Track counters in memory mapped by `socket.id` with a timestamp-based reset.
-  * **Distributed:** Store counters in Redis with a Time-To-Live (TTL) expiration, ensuring rate-limiting rules apply consistently across all scaled instances.
+* **Persistent User ID**: We generate a unique `userId` on the client and store it in `localStorage`.
+* **Styling Preservation**: The client includes this `userId` in the message payloads and checks it when rendering, ensuring the user's own messages always align to the right side (sender styling) regardless of page refreshes.
 
 ---
 
 ## 🛠️ Tech Stack
-* **Runtime:** Node.js (with ES modules)
-* **Language:** TypeScript
-* **Server:** Express
-* **Real-time Engine:** Socket.IO
-* **Styling:** Vanilla CSS (Simple Dark Mode)
+* **Runtime**: Node.js (ES Modules)
+* **Language**: TypeScript
+* **Server**: Express
+* **Real-time Engine**: Socket.IO
+* **Database/Broker**: Valkey / Redis (running in Docker container)
+* **Styling**: Vanilla CSS (Simple Dark Mode)
