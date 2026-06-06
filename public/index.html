@@ -31,7 +31,6 @@
         const input = document.getElementById('message-input');
         const sendBtn = document.getElementById('send-btn');
 
-        // Retrieve or generate a persistent userId
         let userId = localStorage.getItem('userId');
         if (!userId) {
             userId = 'user_' + Math.random().toString(36).substring(2, 9);

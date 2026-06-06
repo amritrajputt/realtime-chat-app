@@ -5,12 +5,15 @@ import type { Request, Response } from "express";
 import { publisher, subscriber } from "./redis.js";
 
 const MAX_MESSAGES = 100;
+
+const rateLimit: Map<string, { count: number, timestamp: number }> = new Map();
+
 async function main() {
     const app = express();
 
     const server = http.createServer(app);
 
-    
+
 
     const io = new Server();
     io.attach(server);
@@ -27,8 +30,30 @@ async function main() {
     io.on("connection", async (socket) => {
         console.log("User connected:", socket.id);
 
+        rateLimit.set(socket.id, { count: 0, timestamp: Date.now() });
+
         socket.on("chat message", async (msg: { id: string, text: string }) => {
             const msgStr = JSON.stringify(msg);
+            const time = Date.now();
+            const timeWindow = 10000; 
+            const maxMessages = 3;
+
+            if (rateLimit.has(socket.id)) {
+                const { count, timestamp } = rateLimit.get(socket.id)!;
+                if (time - timestamp < timeWindow) {
+                    if (count >= maxMessages) {
+                        socket.emit("chat message", { id: "system", text: "Rate limit exceeded. Please wait before sending more messages." });
+                        return;
+                    }
+                    rateLimit.set(socket.id, { count: count + 1, timestamp });
+                } else {
+                
+                    rateLimit.set(socket.id, { count: 1, timestamp: time });
+                }
+            } else {
+                rateLimit.set(socket.id, { count: 1, timestamp: time });
+            }
+
             await publisher.rpush("chat_history", msgStr);
             await publisher.ltrim("chat_history", -MAX_MESSAGES, -1);
             await publisher.publish("chat", msgStr);
@@ -36,6 +61,7 @@ async function main() {
 
         socket.on("disconnect", () => {
             console.log("User disconnected:", socket.id);
+            rateLimit.delete(socket.id); 
         });
     });
 
