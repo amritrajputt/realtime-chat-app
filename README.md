@@ -50,16 +50,18 @@ Instead of keeping messages in a local memory array (which gets lost on server r
 * **Eviction (`LTRIM`)**: To prevent memory bloat, we run `LTRIM chat_history -100 -1` after every push. This retains only the 100 most recent messages (indices `-100` to `-1`) and discards older ones from the left (head).
 * **Load (`LRANGE`)**: When a client loads or refreshes the page, they request `/load-messages` which executes `LRANGE chat_history 0 -1` to retrieve the entire capped history chronologically.
 
-### 3. Distributed Rate Limiting (Redis-Backed)
-To protect server resources and prevent spam consistently across all server instances, we implemented a **Redis-backed Fixed-Window Rate Limiter**:
+### 3. Distributed Rate Limiting (Redis Hash Map)
+To protect server resources and prevent spam consistently across all server instances, we implemented a **Redis Hash-backed Fixed-Window Rate Limiter**:
 
 * **Limitation Rules**: Users are capped at a maximum of **3 messages every 10 seconds**.
-* **State Management & Expiry**: 
-  * We store the rate limit counter directly in Redis using the key `ratelimit:${socket.id}`.
-  * When a message is sent, we atomically increment the counter using `INCR`.
-  * If the counter value is `1` (indicating the start of a new window), we set a `10` second expiration on the key using `EXPIRE`.
-  * If the counter value exceeds `3`, the message is blocked and a rate limit warning is sent back to the socket.
-* **Auto Cleanup**: Because the keys have a Redis-enforced TTL of 10 seconds, they expire and clean up automatically. No manual garbage collection or `disconnect` handler cleanup is needed on the application server.
+* **State Management**:
+  * We store the user's rate limit state (count and window start timestamp) inside a Redis Hash key under the format `ratelimit:${socket.id}`.
+  * When a message is sent, we query the hash state using `HGETALL`.
+  * If the window is active (`Date.now() - timestamp < 10000`):
+    * If `count >= 3`, the message is blocked and a warning is emitted back to the client.
+    * Otherwise, the count field in the Redis Hash is incremented using `HINCRBY`.
+  * If the window has expired, we reset the count to `1`, update the timestamp to the current time using `HSET`, and refresh the key's TTL to 10 seconds using `EXPIRE`.
+* **Cleanup on Disconnect**: When a user disconnects, we explicitly delete their rate limiting hash key from Redis using the `DEL` command to free up memory immediately, while the key still has a safety TTL backup of 10 seconds in case of sudden server crashes.
 
 ### 4. Session Persistence (Local Storage)
 Because socket connections assign a new random `socket.id` on page refresh or reconnection, using `socket.id` as the message sender key causes historical messages to misalign (shifting from the right to the left).
