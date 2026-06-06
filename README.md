@@ -50,20 +50,16 @@ Instead of keeping messages in a local memory array (which gets lost on server r
 * **Eviction (`LTRIM`)**: To prevent memory bloat, we run `LTRIM chat_history -100 -1` after every push. This retains only the 100 most recent messages (indices `-100` to `-1`) and discards older ones from the left (head).
 * **Load (`LRANGE`)**: When a client loads or refreshes the page, they request `/load-messages` which executes `LRANGE chat_history 0 -1` to retrieve the entire capped history chronologically.
 
-### 3. Connection-Based Rate Limiting
-To protect server resources and prevent spam, we implemented a **Fixed-Window Rate Limiter**:
+### 3. Distributed Rate Limiting (Redis-Backed)
+To protect server resources and prevent spam consistently across all server instances, we implemented a **Redis-backed Fixed-Window Rate Limiter**:
 
 * **Limitation Rules**: Users are capped at a maximum of **3 messages every 10 seconds**.
-* **State Management**: We store a rate limit state map in memory:
-  ```typescript
-  rateLimit: Map<string, { count: number, timestamp: number }>
-  ```
-* **Window Evaluation**:
-  * If a message is sent within 10 seconds of the window start (`Date.now() - timestamp < 10000`):
-    * If `count >= 3`, the message is dropped and a warning is emitted back to the client.
-    * Otherwise, `count` is incremented.
-  * If 10 seconds have elapsed, the window is reset: `count` is set to `1` and `timestamp` is updated to `Date.now()`.
-* **Memory Management**: To prevent memory leaks, we execute `rateLimit.delete(socket.id)` when the connection fires a `disconnect` event.
+* **State Management & Expiry**: 
+  * We store the rate limit counter directly in Redis using the key `ratelimit:${socket.id}`.
+  * When a message is sent, we atomically increment the counter using `INCR`.
+  * If the counter value is `1` (indicating the start of a new window), we set a `10` second expiration on the key using `EXPIRE`.
+  * If the counter value exceeds `3`, the message is blocked and a rate limit warning is sent back to the socket.
+* **Auto Cleanup**: Because the keys have a Redis-enforced TTL of 10 seconds, they expire and clean up automatically. No manual garbage collection or `disconnect` handler cleanup is needed on the application server.
 
 ### 4. Session Persistence (Local Storage)
 Because socket connections assign a new random `socket.id` on page refresh or reconnection, using `socket.id` as the message sender key causes historical messages to misalign (shifting from the right to the left).

@@ -6,7 +6,6 @@ import { publisher, subscriber } from "./redis.js";
 
 const MAX_MESSAGES = 100;
 
-const rateLimit: Map<string, { count: number, timestamp: number }> = new Map();
 
 async function main() {
     const app = express();
@@ -30,28 +29,33 @@ async function main() {
     io.on("connection", async (socket) => {
         console.log("User connected:", socket.id);
 
-        rateLimit.set(socket.id, { count: 0, timestamp: Date.now() });
-
         socket.on("chat message", async (msg: { id: string, text: string }) => {
             const msgStr = JSON.stringify(msg);
+            const rateLimitKey = `ratelimit:${socket.id}`;
             const time = Date.now();
-            const timeWindow = 10000; 
+            const timeWindow = 10000;
             const maxMessages = 3;
 
-            if (rateLimit.has(socket.id)) {
-                const { count, timestamp } = rateLimit.get(socket.id)!;
+           
+            const data = await publisher.hgetall(rateLimitKey);
+
+            if (data && data.timestamp) {
+                const count = parseInt(data.count || "0", 10);
+                const timestamp = parseInt(data.timestamp, 10);
+
                 if (time - timestamp < timeWindow) {
                     if (count >= maxMessages) {
                         socket.emit("chat message", { id: "system", text: "Rate limit exceeded. Please wait before sending more messages." });
                         return;
                     }
-                    rateLimit.set(socket.id, { count: count + 1, timestamp });
+                    await publisher.hincrby(rateLimitKey, "count", 1);
                 } else {
-                
-                    rateLimit.set(socket.id, { count: 1, timestamp: time });
+                    await publisher.hset(rateLimitKey, { count: "1", timestamp: String(time) });
+                    await publisher.expire(rateLimitKey, 10);
                 }
             } else {
-                rateLimit.set(socket.id, { count: 1, timestamp: time });
+                await publisher.hset(rateLimitKey, { count: "1", timestamp: String(time) });
+                await publisher.expire(rateLimitKey, 10);
             }
 
             await publisher.rpush("chat_history", msgStr);
@@ -59,13 +63,13 @@ async function main() {
             await publisher.publish("chat", msgStr);
         });
 
-        socket.on("disconnect", () => {
+        socket.on("disconnect", async () => {
             console.log("User disconnected:", socket.id);
-            rateLimit.delete(socket.id); 
+            await publisher.del(`ratelimit:${socket.id}`);
         });
     });
 
-    
+
 
 
 
