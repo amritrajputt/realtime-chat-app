@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat-App</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+    <div class="chat-container">
+        <header>
+            <h1>Chat App</h1>
+            <p>Welcome to the chat app!</p>
+        </header>
+        
+        <ul id="messages"></ul>
+        
+        <div class="input-area">
+            <input type="text" id="message-input" placeholder="Type your message here..." autocomplete="off" />
+            <button id="send-btn" type="submit">Send</button>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const messagesUl = document.getElementById('messages');
+        const input = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+
+        sendBtn.addEventListener("click", () => {
+            const msg = input.value;
+            if (msg.trim() === "") {
+                return;
+            }
+            socket.emit("chat message", { id: socket.id, text: msg });
+            input.value = "";
+        });
+
+        input.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                sendBtn.click();
+            }
+        });
+
+        socket.on("chat message", (data) => {
+            const li = document.createElement('li');
+            const isObject = typeof data === 'object' && data !== null;
+            const text = isObject ? data.text : data;
+            const senderId = isObject ? data.id : null;
+
+            li.textContent = text;
+            
+            if (senderId && senderId === socket.id) {
+                li.classList.add('sender');
+            } else {
+                li.classList.add('receiver');
+            }
+            
+            messagesUl.appendChild(li);
+            messagesUl.scrollTop = messagesUl.scrollHeight;
+        });
+    </script>
+</body>
+
+</html>
