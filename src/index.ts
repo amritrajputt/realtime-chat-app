@@ -20,8 +20,8 @@ async function main() {
 
     const server = http.createServer(app);
     const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
-    
-    app.use(cors({ 
+
+    app.use(cors({
         origin: FRONTEND_URL,
         credentials: true
     }));
@@ -55,7 +55,7 @@ async function main() {
             const timeWindow = 10000;
             const maxMessages = 3;
 
-           
+
             const data = await publisher.hgetall(rateLimitKey);
 
             if (data && data.timestamp) {
@@ -94,6 +94,10 @@ async function main() {
 
 
     const PORT = process.env.PORT || 3000;
+
+    app.get("/ping", (req: Request, res: Response) => {
+        res.send("pong");
+    });
 
     app.post("/push-messages", async (req: Request, res: Response) => {
         const { id, text } = req.body;
