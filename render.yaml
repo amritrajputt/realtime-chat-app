@@ -2,7 +2,7 @@ services:
   # 1. Backend Web Service
   - type: web
     name: chat-backend
-    env: node
+    runtime: node
     plan: free
     buildCommand: pnpm install && pnpm run build
     startCommand: node dist/index.js
@@ -23,11 +23,11 @@ services:
   # 2. Frontend Static Site
   - type: web
     name: chat-frontend
-    env: static
+    runtime: static
     plan: free
     rootDir: chat-app-frontend
     buildCommand: pnpm install && pnpm run build
-    publishDir: dist
+    staticPublishPath: dist
     envVars:
       - key: VITE_BACKEND_URL
         fromService:
