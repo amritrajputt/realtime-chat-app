@@ -1,11 +1,11 @@
 import './App.css'
 import { useState, useEffect } from 'react'
-import { io } from 'socket.io-client';
+import { io, Socket } from 'socket.io-client';
 import MessageList from './components/MessageList.jsx';
 import InputArea from './components/InputArea.jsx';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
-export const socket = io(BACKEND_URL);
+export const socket: Socket = io(BACKEND_URL);
 
 function App() {
   const [messages, setMessages] = useState<any[]>([]);
