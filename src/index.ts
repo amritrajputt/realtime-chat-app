@@ -3,6 +3,8 @@ import express from "express";
 import { Server } from "socket.io";
 import type { Request, Response } from "express";
 import { publisher, subscriber } from "./redis.js";
+import cors from "cors";
+
 
 const MAX_MESSAGES = 100;
 
@@ -11,11 +13,21 @@ async function main() {
     const app = express();
 
     const server = http.createServer(app);
+    app.use(cors({ 
+        origin: "http://localhost:5173",
+        credentials: true
+    }));
+const io = new Server(server, {
+    cors: {
+        origin: "http://localhost:5173",
+        methods: ["GET", "POST"]
+    }
+});
 
 
 
-    const io = new Server();
-    io.attach(server);
+
+
 
     await subscriber.subscribe("chat");
 
@@ -75,6 +87,7 @@ async function main() {
 
     app.use(express.json());
     app.use(express.static("./public"));
+
 
     const PORT = process.env.PORT || 3000;
 
