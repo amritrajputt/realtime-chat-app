@@ -104,19 +104,3 @@ Install dependencies and run the development server:
 pnpm install
 pnpm run dev
 ```
-
----
-
-## 🌐 Production Deployment (Render)
-
-This application is pre-configured for deployment to [Render](https://render.com) using Infrastructure-as-Code via [render.yaml](file:///d:/chat-app/render.yaml). 
-
-The blueprint deploys:
-1.  **Backend Web Service (`chat-backend`)**: Node.js web service running Express and Socket.IO.
-2.  **Frontend Static Site (`chat-frontend`)**: Static host publishing Vite production build exports.
-3.  **Redis Cache (`chat-redis`)**: A fully managed private Redis instance.
-
-To deploy:
-1. Connect your GitHub repository to Render.
-2. Navigate to **Blueprints** and upload/select the repository.
-3. Render will automatically parse [render.yaml](file:///d:/chat-app/render.yaml) and provision all services.
