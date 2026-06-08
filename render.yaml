@@ -13,10 +13,7 @@ services:
           name: chat-redis
           property: connectionString
       - key: FRONTEND_URL
-        fromService:
-          type: web
-          name: chat-frontend
-          property: url
+        value: https://chat-frontend.onrender.com # Update in dashboard after deployment if different
       - key: PORT
         value: 3000
 
@@ -30,10 +27,7 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_BACKEND_URL
-        fromService:
-          type: web
-          name: chat-backend
-          property: url
+        value: https://chat-backend.onrender.com # Update in dashboard after deployment if different
 
   # 3. Redis Service
   - type: redis
