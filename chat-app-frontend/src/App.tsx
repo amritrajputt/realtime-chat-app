@@ -4,7 +4,8 @@ import { io } from 'socket.io-client';
 import MessageList from './components/MessageList.jsx';
 import InputArea from './components/InputArea.jsx';
 
-export const socket = io('http://localhost:3000');
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+export const socket = io(BACKEND_URL);
 
 function App() {
   const [messages, setMessages] = useState<any[]>([]);
@@ -22,7 +23,7 @@ function App() {
     // Fetching the previous messages
     const fetchMessages = async () => {
       try {
-        const response = await fetch('http://localhost:3000/load-messages');
+        const response = await fetch(`${BACKEND_URL}/load-messages`);
         const data = await response.json();
         setMessages(data);
       } catch (err) {

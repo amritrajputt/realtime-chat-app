@@ -1,0 +1,42 @@
+services:
+  # 1. Backend Web Service
+  - type: web
+    name: chat-backend
+    env: node
+    plan: free
+    buildCommand: pnpm install && pnpm run build
+    startCommand: node dist/index.js
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: chat-redis
+          property: connectionString
+      - key: FRONTEND_URL
+        fromService:
+          type: web
+          name: chat-frontend
+          property: url
+      - key: PORT
+        value: 3000
+
+  # 2. Frontend Static Site
+  - type: web
+    name: chat-frontend
+    env: static
+    plan: free
+    rootDir: chat-app-frontend
+    buildCommand: pnpm install && pnpm run build
+    publishDir: dist
+    envVars:
+      - key: VITE_BACKEND_URL
+        fromService:
+          type: web
+          name: chat-backend
+          property: url
+
+  # 3. Redis Service
+  - type: redis
+    name: chat-redis
+    plan: free
+    ipAllowList: [] # Allow internal access only for security
