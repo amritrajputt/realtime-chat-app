@@ -21,7 +21,6 @@ services:
   - type: web
     name: chat-frontend
     runtime: static
-    plan: free
     rootDir: chat-app-frontend
     buildCommand: pnpm install && pnpm run build
     staticPublishPath: dist
