@@ -10,6 +10,8 @@ export const socket: Socket = io(BACKEND_URL);
 function App() {
   const [messages, setMessages] = useState<any[]>([]);
   const [userId, setUserId] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isConnected, setIsConnected] = useState<boolean>(socket.connected);
 
   useEffect(() => {
     // Generate/Retrieve persistent userId
@@ -24,13 +26,31 @@ function App() {
     const fetchMessages = async () => {
       try {
         const response = await fetch(`${BACKEND_URL}/load-messages`);
-        const data = await response.json();
-        setMessages(data);
+        if (response.ok) {
+          const data = await response.json();
+          setMessages(data);
+          setIsLoading(false);
+        }
       } catch (err) {
         console.error("Failed to load messages:", err);
       }
     };
+    
+    // Call initial fetch
     fetchMessages();
+
+    // Update connection state and re-sync on events
+    const handleConnect = () => {
+      setIsConnected(true);
+      fetchMessages();
+    };
+
+    const handleDisconnect = () => {
+      setIsConnected(false);
+    };
+
+    socket.on("connect", handleConnect);
+    socket.on("disconnect", handleDisconnect);
 
     // Listening for new messages from the server
     socket.on("chat message", (msg: { id: string, text: string }) => {
@@ -39,9 +59,32 @@ function App() {
 
     // Cleanup function
     return () => {
+      socket.off("connect", handleConnect);
+      socket.off("disconnect", handleDisconnect);
       socket.off("chat message");
     }
   }, []);
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen w-screen bg-zinc-950 text-zinc-100 font-sans">
+        <div className="flex flex-col items-center max-w-sm px-6 text-center space-y-6">
+          {/* Animated Spinner */}
+          <div className="relative w-14 h-14">
+            <div className="absolute inset-0 rounded-full border-4 border-zinc-900"></div>
+            <div className="absolute inset-0 rounded-full border-4 border-t-zinc-400 animate-spin"></div>
+          </div>
+          
+          <div className="space-y-2">
+            <h2 className="text-base font-semibold tracking-tight text-zinc-200">Connecting to chat_space</h2>
+            <p className="text-xs text-zinc-500 leading-relaxed">
+              We are waking up the server. This may take up to a minute on Render's free plan. Thank you for your patience!
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-screen w-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-white selection:text-black">
@@ -49,10 +92,15 @@ function App() {
         <header className="px-6 py-4 border-b border-zinc-900 flex items-center justify-between bg-zinc-950 shrink-0">
           <div>
             <h1 className="text-lg font-semibold tracking-tight text-zinc-100">chat_space</h1>
-            <p className="text-[10px] text-zinc-500 font-mono mt-0.5">status: active</p>
+            <p className="text-[10px] font-mono mt-0.5 flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? "bg-emerald-500 animate-pulse" : "bg-amber-500 animate-pulse"}`}></span>
+              <span className={isConnected ? "text-zinc-500" : "text-amber-500"}>
+                status: {isConnected ? "active" : "reconnecting..."}
+              </span>
+            </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className={`w-2 h-2 rounded-full animate-pulse ${isConnected ? "bg-emerald-500" : "bg-amber-500"}`}></span>
             <span className="text-[10px] font-mono text-zinc-400 bg-zinc-900 px-2.5 py-1 rounded-lg border border-zinc-800/60">
               {userId || 'connecting...'}
             </span>
@@ -68,7 +116,7 @@ function App() {
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 export default App;
