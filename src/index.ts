@@ -8,6 +8,12 @@ import cors from "cors";
 
 const MAX_MESSAGES = 100;
 
+async function saveAndPublishMessage(msg: { id: string; text: string }) {
+    const msgStr = JSON.stringify(msg);
+    await publisher.rpush("chat_history", msgStr);
+    await publisher.ltrim("chat_history", -MAX_MESSAGES, -1);
+    await publisher.publish("chat", msgStr);
+}
 
 async function main() {
     const app = express();
@@ -33,6 +39,7 @@ async function main() {
 
     await subscriber.subscribe("chat");
 
+    subscriber.removeAllListeners("message");
     subscriber.on("message", (channel: string, message: string) => {
         if (channel === "chat") {
             const msg = JSON.parse(message);
@@ -41,8 +48,6 @@ async function main() {
     });
 
     io.on("connection", async (socket) => {
-        console.log("User connected:", socket.id);
-
         socket.on("chat message", async (msg: { id: string, text: string }) => {
             const msgStr = JSON.stringify(msg);
             const rateLimitKey = `ratelimit:${socket.id}`;
@@ -72,13 +77,10 @@ async function main() {
                 await publisher.expire(rateLimitKey, 10);
             }
 
-            await publisher.rpush("chat_history", msgStr);
-            await publisher.ltrim("chat_history", -MAX_MESSAGES, -1);
-            await publisher.publish("chat", msgStr);
+            await saveAndPublishMessage(msg);
         });
 
         socket.on("disconnect", async () => {
-            console.log("User disconnected:", socket.id);
             await publisher.del(`ratelimit:${socket.id}`);
         });
     });
@@ -95,11 +97,7 @@ async function main() {
 
     app.post("/push-messages", async (req: Request, res: Response) => {
         const { id, text } = req.body;
-        const msg = { id, text };
-        const msgStr = JSON.stringify(msg);
-        await publisher.rpush("chat_history", msgStr);
-        await publisher.ltrim("chat_history", -MAX_MESSAGES, -1);
-        await publisher.publish("chat", msgStr);
+        await saveAndPublishMessage({ id, text });
         res.send("Message sent");
     });
     app.get("/load-messages", async (req: Request, res: Response) => {

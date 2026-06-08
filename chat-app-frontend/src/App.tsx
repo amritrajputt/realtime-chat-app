@@ -32,11 +32,6 @@ function App() {
     };
     fetchMessages();
 
-    // Listening for connection confirmation
-    socket.on("connect", () => {
-      console.log("Connected to server. Socket ID:", socket.id);
-    });
-
     // Listening for new messages from the server
     socket.on("chat message", (msg: { id: string, text: string }) => {
       setMessages((prevMessages) => [...prevMessages, { id: msg.id, text: msg.text }]);
@@ -45,7 +40,6 @@ function App() {
     // Cleanup function
     return () => {
       socket.off("chat message");
-      socket.off("connect");
     }
   }, []);
 
